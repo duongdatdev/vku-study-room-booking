@@ -23,13 +23,14 @@
 
 | # | Required Feature | Status | Implementation Details & Acceptance Level |
 |:---:|---|:---:|---|
-| **1** | **Room Discovery & Multi-Parameter Filter** | ✅ Complete | 21+ mock study rooms & computer labs across VKU buildings (Khu KA, Khu KB, Khu KC, Khu VA). Instant keyword search bar (debounced controlled input) and dynamic filter chips by building, capacity threshold, and equipment (High-spec PC, Projector, Whiteboard, AC). |
+| **1** | **Room Discovery & Multi-Parameter Filter** | ✅ Complete | 21+ mock study rooms & computer labs across VKU buildings (Khu KA, Khu KB, Khu KC, Khu VA). Instant controlled keyword search and dynamic filter chips by building, capacity threshold, and equipment (High-spec PC, Projector, Whiteboard, AC). |
 | **2** | **60fps FlatList List Optimization** | ✅ Complete | Memoized `RoomCard` components with `React.memo`, `initialNumToRender={10}`, `maxToRenderPerBatch={5}`, `windowSize={5}`, and `removeClippedSubviews={true}` ensuring smooth 60fps scrolling without frame drops. |
 | **3** | **Interactive Time-Slot Selector & Conflict Engine** | ✅ Complete | 7-day horizontal calendar picker combined with 2-hour discrete time slots (`07:30–09:30`, `09:30–11:30`, `13:00–15:00`, etc.). Visual conflict prevention: already-booked slots are grayed-out, strikethrough, and disabled in real time. |
 | **4** | **Interactive QR Check-In Modal & Boarding Pass** | ✅ Complete | Generates a unique booking pass with an interactive QR code using `react-native-qrcode-svg`. Provides a simulated door-lock check-in trigger updating reservation status to `CHECKED IN`. |
 | **5** | **Global State Management with Zustand & Persistence** | ✅ Complete | Single-source-of-truth `useBookingStore` managing user session, bookings, conflict checks, and filters. Persisted across app restarts via `@react-native-async-storage/async-storage`. |
 | **6** | **Local Notifications Reminders** | ✅ Complete | Integrated `expo-notifications` with custom `useNotifications` hook to schedule local alert reminders 15 minutes prior to booking start time. Includes an instant test notification trigger on the Profile screen. |
 | **7** | **Responsive Design & Custom Hook (Slide 26-27)** | ✅ Complete | Implemented `useResponsiveLayout` using `useWindowDimensions()` to dynamically recalculate columns (`numColumns={columns}`, `key={columns}`) and card widths across portrait, landscape, and tablet viewports. |
+| **8** | **TanStack Query, Pull-to-Refresh & Motion** | ✅ Complete | The room feed is cached for five minutes through TanStack Query and refreshes via native FlatList pull-to-refresh. Reanimated staggered card entry respects the device reduced-motion preference. Current query data is local mock data behind a replaceable service boundary. |
 
 ---
 
@@ -67,7 +68,7 @@ Mini-Project-2/
 ```
 
 ### 3.2 State Management & Conflict Prevention Data Flow
-The application uses **Zustand** combined with `persist` middleware:
+The application separates local and server-style state. **Zustand** with `persist` manages bookings, the student profile, filters, and collision checks; **TanStack Query** caches the room feed for five minutes and exposes pull-to-refresh. The current query service returns classroom mock data until a campus API is available.
 1. **Conflict Engine**: Before creating a reservation, `isSlotBooked(roomId, date, slotId)` queries active reservations. If a match is detected (`status !== 'cancelled'`), the action is rejected with an explanatory collision notice.
 2. **Atomic Commits**: Successful bookings automatically append a new `Booking` object to the state with a cryptographically unique reference ID and QR payload, concurrently triggering the local notification scheduler.
 3. **Local Persistence**: State changes are mirrored asynchronously to device storage via `@react-native-async-storage/async-storage`, guaranteeing offline data integrity across app restarts.

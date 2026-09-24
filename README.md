@@ -22,9 +22,10 @@ VKU students require a fast, reliable mobile app to check real-time availability
 3. **Interactive QR Check-In Modal & Boarding Pass**:
    - Generates a unique booking pass with an interactive QR check-in code (`react-native-qrcode-svg`).
    - One-tap "Check In at Door" mechanism with live state transitions.
-4. **Global State Management with Zustand**:
+4. **State Management & Cached Room Data**:
    - Dedicated `useBookingStore` managing user profile session, active reservations, collision checks, and cancellations.
    - Local storage persistence via `@react-native-async-storage/async-storage`.
+   - TanStack Query caches the room feed for five minutes and powers pull-to-refresh. The current query service returns local mock data, with one API boundary ready for a real backend.
 5. **Local Notifications**:
    - Integrates `expo-notifications` to trigger a reminder alert 15 minutes before the booked slot starts, with an instant test trigger on the Profile screen.
 6. **Responsive Layout (Slide 26 & 27)**:
@@ -45,7 +46,8 @@ graph TD
     C --> G[ProfileScreen]
     
     E --> H[SearchBar & FilterChips]
-    E --> I[Optimized FlatList 60fps]
+    E --> Q[TanStack Query Room Cache]
+    Q --> I[Optimized FlatList + Pull-to-Refresh]
     I --> J[Memoized RoomCard Components]
     
     D --> K[TimeSlotPicker & 7-Day Strip]
@@ -81,6 +83,11 @@ Mini-Project-2/
 │   ├── hooks/
 │   │   ├── useResponsiveLayout.ts# Slide 26-27 responsive columns & dimensions
 │   │   └── useNotifications.ts   # expo-notifications 15-min reminder scheduler
+│   │   └── useRooms.ts           # TanStack Query room-feed hook
+│   ├── providers/
+│   │   └── QueryProvider.tsx     # Shared QueryClient configuration
+│   ├── services/
+│   │   └── rooms.ts              # Replaceable room data API boundary
 │   ├── components/
 │   │   ├── RoomCard.tsx          # Memoized room card with badges (Slide 14, 15)
 │   │   ├── SearchBar.tsx         # Controlled search input (Slide 18)
@@ -156,3 +163,10 @@ npx expo start --web
    - Observe the live status transition from `CONFIRMED` to `CHECKED IN`.
 4. **Local Notifications**:
    - Switch to **Profile** tab and tap **Test 15-min Local Notification** to test instant device alerts.
+5. **Room Refresh & Motion**:
+   - Pull down on the Browse Rooms list. The refresh indicator confirms that the TanStack Query room feed is being refetched.
+   - Clear a filter or refresh the list to see a short, staggered Room Card entry animation; device reduced-motion settings are respected.
+
+## Data source note
+
+The room feed intentionally uses `src/data/mockRooms.ts` behind `src/services/rooms.ts`. This meets the coursework requirement for TanStack Query and pull-to-refresh while no campus API has been supplied. Replace only `fetchRooms` when a real service becomes available; the screen, cache behavior, and refresh interaction remain unchanged.
