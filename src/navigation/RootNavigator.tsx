@@ -47,7 +47,7 @@ function BottomTabs() {
     >
       <Tab.Screen
         name="BrowseRooms"
-        component={BrowseRoomsScreen as any}
+        component={BrowseRoomsScreen}
         options={{ tabBarLabel: 'Browse Rooms' }}
       />
       <Tab.Screen

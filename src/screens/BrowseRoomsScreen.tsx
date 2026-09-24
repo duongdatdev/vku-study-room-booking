@@ -2,7 +2,9 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList, Room } from '../types';
+import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { CompositeScreenProps } from '@react-navigation/native';
+import { RootStackParamList, Room, TabParamList } from '../types';
 import { useBookingStore } from '../store/useBookingStore';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import { RoomCard } from '../components/RoomCard';
@@ -10,7 +12,10 @@ import { SearchBar } from '../components/SearchBar';
 import { FilterChips } from '../components/FilterChips';
 import { useRooms } from '../hooks/useRooms';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'MainTabs'>;
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<TabParamList, 'BrowseRooms'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
 
 export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
   const {

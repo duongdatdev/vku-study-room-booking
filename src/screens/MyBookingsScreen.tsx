@@ -9,11 +9,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Booking, BookingStatus } from '../types';
+import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { Booking, TabParamList } from '../types';
 import { useBookingStore } from '../store/useBookingStore';
 import { BookingPassModal } from '../components/BookingPassModal';
 
-export const MyBookingsScreen: React.FC<any> = ({ navigation }) => {
+type Props = BottomTabScreenProps<TabParamList, 'MyBookings'>;
+
+export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
   const bookings = useBookingStore((s) => s.bookings);
   const cancelBooking = useBookingStore((s) => s.cancelBooking);
   const user = useBookingStore((s) => s.user);

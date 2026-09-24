@@ -59,7 +59,7 @@ export interface StudentProfile {
 }
 
 export type RootStackParamList = {
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<TabParamList> | undefined;
   RoomDetail: { roomId: string };
 };
 
@@ -68,3 +68,4 @@ export type TabParamList = {
   MyBookings: undefined;
   Profile: undefined;
 };
+import { NavigatorScreenParams } from '@react-navigation/native';
