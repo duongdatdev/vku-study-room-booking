@@ -1,16 +1,22 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, Pressable, StyleProp, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  FadeInDown,
+  LinearTransition,
+  ReduceMotion,
+} from 'react-native-reanimated';
 import { Room } from '../types';
 import { StatusBadge } from './StatusBadge';
 
 interface RoomCardProps {
   room: Room;
   onPress: (room: Room) => void;
+  index?: number;
   style?: StyleProp<ViewStyle>;
 }
 
-export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, style }) => {
+export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, index = 0, style }) => {
   const getEquipmentIcon = (eq: string) => {
     switch (eq) {
       case 'Projector':
@@ -27,69 +33,79 @@ export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, st
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-        style,
-      ]}
-      onPress={() => onPress(room)}
-      hitSlop={8}
+    <Animated.View
+      entering={FadeInDown.delay(Math.min(index * 55, 330))
+        .duration(260)
+        .reduceMotion(ReduceMotion.System)}
+      layout={LinearTransition.duration(180).reduceMotion(ReduceMotion.System)}
     >
-      {/* Room Photo Banner */}
-      <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: room.imageUrl }}
-          style={styles.image}
-          resizeMode="cover"
-        />
-        {/* Floating Building & Status Overlay */}
-        <View style={styles.imageOverlayTop}>
-          <View style={styles.buildingBadge}>
-            <Text style={styles.buildingBadgeText}>Khu {room.building} • Tầng {room.floor}</Text>
-          </View>
-          <StatusBadge isAvailable={room.isAvailableNow} />
-        </View>
-      </View>
-
-      {/* Card Content */}
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.roomName} numberOfLines={1}>
-            {room.name}
-          </Text>
-          <View style={styles.capacityBadge}>
-            <Ionicons name="people" size={13} color="#FFFFFF" style={styles.capacityIcon} />
-            <Text style={styles.capacityText}>{room.capacity} seats</Text>
-          </View>
-        </View>
-
-        <Text style={styles.description} numberOfLines={2}>
-          {room.description}
-        </Text>
-
-        {/* Equipment Badges */}
-        <View style={styles.equipmentRow}>
-          {room.equipment.map((item, idx) => (
-            <View key={idx} style={styles.eqChip}>
-              <Ionicons
-                name={getEquipmentIcon(item) as any}
-                size={12}
-                color="#475569"
-                style={{ marginRight: 4 }}
-              />
-              <Text style={styles.eqText}>{item}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`View available slots for ${room.name}`}
+        style={({ pressed }) => [
+          styles.card,
+          pressed && styles.cardPressed,
+          style,
+        ]}
+        onPress={() => onPress(room)}
+        hitSlop={8}
+      >
+        {/* Room Photo Banner */}
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: room.imageUrl }}
+            style={styles.image}
+            resizeMode="cover"
+            accessibilityLabel={`Photo of ${room.name}`}
+          />
+          {/* Floating Building & Status Overlay */}
+          <View style={styles.imageOverlayTop}>
+            <View style={styles.buildingBadge}>
+              <Text style={styles.buildingBadgeText}>Khu {room.building} • Tầng {room.floor}</Text>
             </View>
-          ))}
+            <StatusBadge isAvailable={room.isAvailableNow} />
+          </View>
         </View>
 
-        {/* Footer Action Hint */}
-        <View style={styles.footer}>
-          <Text style={styles.footerActionText}>Check Available Slots</Text>
-          <Ionicons name="arrow-forward-circle" size={18} color="#2563EB" />
+        {/* Card Content */}
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.roomName} numberOfLines={1}>
+              {room.name}
+            </Text>
+            <View style={styles.capacityBadge}>
+              <Ionicons name="people" size={13} color="#FFFFFF" style={styles.capacityIcon} />
+              <Text style={styles.capacityText}>{room.capacity} seats</Text>
+            </View>
+          </View>
+
+          <Text style={styles.description} numberOfLines={2}>
+            {room.description}
+          </Text>
+
+          {/* Equipment Badges */}
+          <View style={styles.equipmentRow}>
+            {room.equipment.map((item, idx) => (
+              <View key={idx} style={styles.eqChip}>
+                <Ionicons
+                  name={getEquipmentIcon(item) as any}
+                  size={12}
+                  color="#475569"
+                  style={{ marginRight: 4 }}
+                />
+                <Text style={styles.eqText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Footer Action Hint */}
+          <View style={styles.footer}>
+            <Text style={styles.footerActionText}>Check Available Slots</Text>
+            <Ionicons name="arrow-forward-circle" size={18} color="#2563EB" />
+          </View>
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+    </Animated.View>
   );
 });
 

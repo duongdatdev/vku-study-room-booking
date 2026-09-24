@@ -141,9 +141,9 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
         data={filteredRooms}
         numColumns={columns}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <View style={[styles.cardWrapper, { width: cardWidth }]}>
-            <RoomCard room={item} onPress={handleRoomPress} />
+            <RoomCard room={item} index={index} onPress={handleRoomPress} />
           </View>
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
