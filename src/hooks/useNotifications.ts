@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { CAMPUS_TIME_ZONE_OFFSET_MINUTES } from '../data/timeSlots';
 
 // Configure foreground notification behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
     shouldShowBanner: true,
@@ -18,9 +18,6 @@ export function useNotifications() {
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
-    // Request permission on mount
-    registerForPushNotificationsAsync();
-
     // Foreground listener
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
       // Received in foreground
@@ -51,30 +48,20 @@ export function useNotifications() {
     bookingId: string
   ): Promise<string | null> => {
     try {
-      const { status } = await Notifications.getPermissionsAsync();
-      if (status !== 'granted') {
-        const { status: newStatus } = await Notifications.requestPermissionsAsync();
-        if (newStatus !== 'granted') {
-          return null;
-        }
-      }
+      if (!(await registerForPushNotificationsAsync())) return null;
 
       // Parse slot start time e.g. "07:30 - 09:30" => start at 07:30
       const [startTimeStr] = timeRange.split(' - ');
       const [hours, minutes] = startTimeStr.split(':').map(Number);
       const [year, month, day] = dateString.split('-').map(Number);
 
-      const targetDate = new Date(year, month - 1, day, hours, minutes, 0);
+      const targetTimestamp =
+        Date.UTC(year, month - 1, day, hours, minutes, 0) -
+        CAMPUS_TIME_ZONE_OFFSET_MINUTES * 60 * 1000;
       // 15 minutes prior
-      const reminderTime = new Date(targetDate.getTime() - 15 * 60 * 1000);
-      const now = new Date();
-
-      let secondsUntilTrigger = Math.floor((reminderTime.getTime() - now.getTime()) / 1000);
-
-      // If slot is within the next 15 minutes or in the past, schedule for 10 seconds ahead for immediate demo feedback
-      if (secondsUntilTrigger <= 0) {
-        secondsUntilTrigger = 5;
-      }
+      const reminderTimestamp = targetTimestamp - 15 * 60 * 1000;
+      const secondsUntilTrigger = Math.floor((reminderTimestamp - Date.now()) / 1000);
+      if (secondsUntilTrigger <= 0) return null;
 
       const identifier = await Notifications.scheduleNotificationAsync({
         content: {
@@ -86,6 +73,7 @@ export function useNotifications() {
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
           seconds: secondsUntilTrigger,
+          channelId: 'booking-reminders',
         },
       });
 
@@ -99,8 +87,9 @@ export function useNotifications() {
   /**
    * Send an instant notification (useful for testing & demo on Expo Go)
    */
-  const triggerInstantNotification = async (title: string, body: string) => {
+  const triggerInstantNotification = async (title: string, body: string): Promise<boolean> => {
     try {
+      if (!(await registerForPushNotificationsAsync())) return false;
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -109,8 +98,10 @@ export function useNotifications() {
         },
         trigger: null, // trigger immediately
       });
+      return true;
     } catch (err) {
       console.warn('Instant notification error:', err);
+      return false;
     }
   };
 
@@ -118,6 +109,24 @@ export function useNotifications() {
     scheduleBookingReminder,
     triggerInstantNotification,
   };
+}
+
+/** Cancel any reminder for a booking after its server-side cancellation succeeds. */
+export async function cancelBookingReminder(bookingId: string): Promise<void> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const matching = scheduled.filter(
+      (notification) => notification.content.data?.bookingId === bookingId
+    );
+    await Promise.all(
+      matching.map((notification) =>
+        Notifications.cancelScheduledNotificationAsync(notification.identifier)
+      )
+    );
+  } catch (error) {
+    // A local notification failure must not undo a cancellation already committed by the server.
+    console.warn('Failed to cancel local booking reminder:', error);
+  }
 }
 
 async function registerForPushNotificationsAsync() {

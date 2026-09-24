@@ -11,12 +11,13 @@ import { StatusBadge } from './StatusBadge';
 
 interface RoomCardProps {
   room: Room;
+  currentAvailability?: boolean | null;
   onPress: (room: Room) => void;
   index?: number;
   style?: StyleProp<ViewStyle>;
 }
 
-export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, index = 0, style }) => {
+export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, currentAvailability = null, onPress, index = 0, style }) => {
   const getEquipmentIcon = (eq: string) => {
     switch (eq) {
       case 'Projector':
@@ -63,7 +64,7 @@ export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, in
             <View style={styles.buildingBadge}>
               <Text style={styles.buildingBadgeText}>Khu {room.building} • Tầng {room.floor}</Text>
             </View>
-            <StatusBadge isAvailable={room.isAvailableNow} />
+            <StatusBadge isAvailable={currentAvailability} />
           </View>
         </View>
 

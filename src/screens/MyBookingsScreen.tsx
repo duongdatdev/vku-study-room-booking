@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,27 +6,53 @@ import {
   FlatList,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import { Booking, TabParamList } from '../types';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { CompositeScreenProps } from '@react-navigation/native';
+import { Booking, RootStackParamList, TabParamList } from '../types';
 import { useBookingStore } from '../store/useBookingStore';
 import { BookingPassModal } from '../components/BookingPassModal';
+import { useAuth } from '../providers/AuthProvider';
+import { useBookingSync } from '../providers/BookingSyncProvider';
+import { cancelBooking } from '../services/bookings';
+import { isSupabaseConfigured } from '../services/supabase';
+import { useNetworkState } from 'expo-network';
+import { cancelBookingReminder } from '../hooks/useNotifications';
 
-type Props = BottomTabScreenProps<TabParamList, 'MyBookings'>;
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<TabParamList, 'MyBookings'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
 
 export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
   const bookings = useBookingStore((s) => s.bookings);
-  const cancelBooking = useBookingStore((s) => s.cancelBooking);
-  const user = useBookingStore((s) => s.user);
+  const bookingsState = useBookingStore((s) => s.bookingsState);
+  const bookingsMessage = useBookingStore((s) => s.bookingsMessage);
+  const updateBookingStatusInState = useBookingStore((s) => s.updateBookingStatus);
+  const { session } = useAuth();
+  const { refreshAvailability, refreshMyBookings } = useBookingSync();
+  const networkState = useNetworkState();
+  const networkAvailable = networkState.isConnected !== false && networkState.isInternetReachable !== false;
+  const canManageBookings = isSupabaseConfigured && networkAvailable;
 
   // Filter tab: 'ALL' | 'ACTIVE' | 'HISTORY'
   const [filterTab, setFilterTab] = useState<'ALL' | 'ACTIVE' | 'HISTORY'>('ALL');
 
   // Modal pass state
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [selectedBookingOwnerId, setSelectedBookingOwnerId] = useState<string | null>(null);
   const [isPassModalVisible, setIsPassModalVisible] = useState(false);
+  const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedBooking(null);
+    setSelectedBookingOwnerId(null);
+    setIsPassModalVisible(false);
+  }, [session?.user.id]);
 
   // Filter bookings belonging to current user or all reservations
   const filteredBookings = useMemo(() => {
@@ -43,8 +69,29 @@ export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleOpenPass = (booking: Booking) => {
     setSelectedBooking(booking);
+    setSelectedBookingOwnerId(session?.user.id ?? null);
     setIsPassModalVisible(true);
   };
+
+  const confirmCancel = async (booking: Booking) => {
+    setPendingCancelId(booking.id);
+    try {
+      await cancelBooking(booking.id);
+      await cancelBookingReminder(booking.id);
+      updateBookingStatusInState(booking.id, 'cancelled');
+      void refreshMyBookings();
+      void refreshAvailability();
+    } catch (error) {
+      Alert.alert('Could not cancel booking', error instanceof Error ? error.message : 'Try again when you are online.');
+      void refreshMyBookings();
+    } finally {
+      setPendingCancelId(null);
+    }
+  };
+
+  const currentSelectedBooking = selectedBooking && selectedBookingOwnerId === session?.user.id
+    ? bookings.find((booking) => booking.id === selectedBooking.id) ?? selectedBooking
+    : null;
 
   const handleCancel = (booking: Booking) => {
     Alert.alert(
@@ -55,7 +102,7 @@ export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
         {
           text: 'Yes, Cancel',
           style: 'destructive',
-          onPress: () => cancelBooking(booking.id),
+          onPress: () => { void confirmCancel(booking); },
         },
       ]
     );
@@ -104,9 +151,17 @@ export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
 
       {/* Bookings List */}
       <FlatList
-        data={filteredBookings}
+        data={session ? filteredBookings : []}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        refreshing={bookingsState === 'loading'}
+        onRefresh={() => void refreshMyBookings()}
+        ListHeaderComponent={session && !canManageBookings ? (
+          <View style={styles.offlineNotice}>
+            <Ionicons name="cloud-offline-outline" size={16} color="#92400E" />
+            <Text style={styles.offlineNoticeText}>Reconnect to manage reservations.</Text>
+          </View>
+        ) : null}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         renderItem={({ item }) => {
           const isConfirmed = item.status === 'confirmed';
@@ -175,14 +230,18 @@ export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
 
                 {isConfirmed && (
                   <Pressable
+                    disabled={pendingCancelId === item.id || !canManageBookings}
                     style={({ pressed }) => [
                       styles.cancelIconBtn,
+                      pendingCancelId === item.id && { opacity: 0.5 },
                       pressed && { opacity: 0.7 },
                     ]}
                     onPress={() => handleCancel(item)}
                     hitSlop={8}
                   >
-                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                    {pendingCancelId === item.id
+                      ? <ActivityIndicator size="small" color="#EF4444" />
+                      : <Ionicons name="trash-outline" size={18} color="#EF4444" />}
                   </Pressable>
                 )}
               </View>
@@ -191,25 +250,47 @@ export const MyBookingsScreen: React.FC<Props> = ({ navigation }) => {
         }}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
-            <Ionicons name="calendar-clear-outline" size={48} color="#CBD5E1" />
-            <Text style={styles.emptyTitle}>No Reservations Found</Text>
-            <Text style={styles.emptyText}>
-              You have no bookings matching this tab. Head over to the Browse Rooms tab to book a room.
-            </Text>
-            <Pressable
-              style={styles.browseRoomsBtn}
-              onPress={() => navigation.navigate('BrowseRooms')}
-            >
-              <Text style={styles.browseRoomsBtnText}>Browse Available Rooms</Text>
-            </Pressable>
+            {bookingsState === 'loading' ? (
+              <ActivityIndicator size="large" color="#1E3A5F" />
+            ) : bookingsState === 'unavailable' && session ? (
+              <>
+                <Ionicons name="cloud-offline-outline" size={42} color="#94A3B8" />
+                <Text style={styles.emptyTitle}>Couldn’t load your bookings</Text>
+                <Text style={styles.emptyText}>{bookingsMessage ?? 'Reconnect and try again.'}</Text>
+                <Pressable style={styles.browseRoomsBtn} onPress={() => void refreshMyBookings()}>
+                  <Text style={styles.browseRoomsBtnText}>Try again</Text>
+                </Pressable>
+              </>
+            ) : !session ? (
+              <>
+                <Ionicons name="person-circle-outline" size={48} color="#CBD5E1" />
+                <Text style={styles.emptyTitle}>Sign in to see your bookings</Text>
+                <Text style={styles.emptyText}>Your reservations follow your VKU email account across devices.</Text>
+                <Pressable style={styles.browseRoomsBtn} onPress={() => navigation.navigate('SignIn')}>
+                  <Text style={styles.browseRoomsBtnText}>Sign in with VKU email</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Ionicons name="calendar-clear-outline" size={48} color="#CBD5E1" />
+                <Text style={styles.emptyTitle}>No Reservations Found</Text>
+                <Text style={styles.emptyText}>
+                  You have no bookings matching this tab. Head over to the Browse Rooms tab to book a room.
+                </Text>
+                <Pressable style={styles.browseRoomsBtn} onPress={() => navigation.navigate('BrowseRooms')}>
+                  <Text style={styles.browseRoomsBtnText}>Browse Available Rooms</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         }
       />
 
       {/* QR Code Pass Modal */}
       <BookingPassModal
-        visible={isPassModalVisible}
-        booking={selectedBooking}
+        visible={isPassModalVisible && selectedBookingOwnerId === session?.user.id}
+        booking={currentSelectedBooking}
+        onBookingUpdated={setSelectedBooking}
         onClose={() => setIsPassModalVisible(false)}
       />
     </SafeAreaView>
@@ -386,6 +467,20 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     alignItems: 'center',
     paddingHorizontal: 32,
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+  },
+  offlineNoticeText: {
+    flex: 1,
+    color: '#78350F',
+    fontSize: 12,
   },
   emptyTitle: {
     fontSize: 16,

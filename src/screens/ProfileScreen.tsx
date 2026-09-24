@@ -10,13 +10,23 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { CompositeScreenProps } from '@react-navigation/native';
 import { useBookingStore } from '../store/useBookingStore';
 import { useNotifications } from '../hooks/useNotifications';
+import { RootStackParamList, TabParamList } from '../types';
+import { useAuth } from '../providers/AuthProvider';
 
-export const ProfileScreen: React.FC = () => {
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<TabParamList, 'Profile'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const user = useBookingStore((s) => s.user);
   const bookings = useBookingStore((s) => s.bookings);
-  const seedInitialData = useBookingStore((s) => s.seedInitialData);
+  const { session, configured, signOut } = useAuth();
   const { triggerInstantNotification } = useNotifications();
 
   const totalBookings = bookings.length;
@@ -24,26 +34,26 @@ export const ProfileScreen: React.FC = () => {
   const completedCount = bookings.filter((b) => b.status === 'checked-in').length;
 
   const handleTestNotification = async () => {
-    await triggerInstantNotification(
+    const sent = await triggerInstantNotification(
       '🔔 VKU Room Booking Alert',
-      'Test notification delivered! Your next room booking check-in will alert 15 minutes in advance.'
+      'Test notification. Booking reminders are scheduled 15 minutes before their start time.'
     );
-    Alert.alert('Notification Triggered', 'A local test notification was sent to your system notification tray.');
+    Alert.alert(
+      sent ? 'Notification Triggered' : 'Notifications Unavailable',
+      sent ? 'A local test notification was sent to your system notification tray.' : 'Allow notifications and try again.'
+    );
   };
 
-  const handleResetData = () => {
+  const handleSignOut = () => {
     Alert.alert(
-      'Reset Demo Data',
-      'Restore initial mock rooms, preset reservations, and test state?',
+      'Sign out',
+      'Sign out of your VKU account on this device?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Reset Now',
+          text: 'Sign out',
           style: 'destructive',
-          onPress: () => {
-            seedInitialData();
-            Alert.alert('Success', 'Demo reservations have been re-seeded.');
-          },
+          onPress: () => { void signOut().catch((error) => Alert.alert('Could not sign out', error.message)); },
         },
       ]
     );
@@ -54,16 +64,16 @@ export const ProfileScreen: React.FC = () => {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerSubtitle}>STUDENT PROFILE</Text>
+          <Text style={styles.headerSubtitle}>VKU ACCOUNT PROFILE</Text>
           <Text style={styles.headerTitle}>Account & Settings</Text>
         </View>
 
-        {/* VKU Student Card Badge */}
-        <View style={styles.studentCard}>
+        {/* VKU account card */}
+        {user ? <View style={styles.studentCard}>
           <View style={styles.cardHeader}>
             <View>
               <Text style={styles.cardUniName}>VIETNAM - KOREA UNIVERSITY</Text>
-              <Text style={styles.cardDocType}>STUDENT IDENTIFICATION PASS</Text>
+              <Text style={styles.cardDocType}>VKU EMAIL ACCOUNT</Text>
             </View>
             <View style={styles.vkuLogoWrap}>
               <Text style={styles.vkuLogoText}>VKU</Text>
@@ -71,23 +81,42 @@ export const ProfileScreen: React.FC = () => {
           </View>
 
           <View style={styles.cardBody}>
-            <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+            {user.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={styles.avatar} /> : (
+              <View style={[styles.avatar, styles.avatarFallback]}>
+                <Ionicons name="person" size={28} color="#BFDBFE" />
+              </View>
+            )}
             <View style={styles.studentDetails}>
               <Text style={styles.studentName}>{user.name}</Text>
-              <Text style={styles.studentId}>MSSV: {user.studentId}</Text>
+              <Text style={styles.studentId}>Student ID: {user.studentId}</Text>
               <Text style={styles.studentDept}>{user.department}</Text>
               <Text style={styles.studentEmail}>{user.email}</Text>
             </View>
           </View>
 
           <View style={styles.cardFooter}>
-            <Text style={styles.chipText}>VKU SMART CAMPUS CARD</Text>
+              <Text style={styles.chipText}>VKU EMAIL ACCOUNT</Text>
             <View style={styles.activeDotRow}>
               <View style={styles.activeDot} />
-              <Text style={styles.activeStatusText}>VERIFIED</Text>
+              <Text style={styles.activeStatusText}>VKU ACCOUNT</Text>
             </View>
           </View>
-        </View>
+        </View> : (
+          <View style={styles.authPrompt}>
+            <Ionicons name="mail-outline" size={24} color="#1E3A5F" />
+            <Text style={styles.authPromptTitle}>{configured ? 'Sign in with your VKU email' : 'Connect Supabase to sign in'}</Text>
+            <Text style={styles.authPromptText}>
+              {configured
+                ? 'Your bookings stay linked to your @vku.udn.vn account across devices.'
+                : 'Add the Supabase URL and publishable key from .env.example, then restart Expo.'}
+            </Text>
+            {configured && (
+              <Pressable style={styles.authButton} onPress={() => navigation.navigate('SignIn')}>
+                <Text style={styles.authButtonText}>Sign in</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {/* Booking Statistics */}
         <View style={styles.statsContainer}>
@@ -118,26 +147,27 @@ export const ProfileScreen: React.FC = () => {
               <Ionicons name="notifications-outline" size={20} color="#2563EB" />
             </View>
             <View style={styles.actionTextWrap}>
-              <Text style={styles.actionTitle}>Test 15-min Local Notification</Text>
-              <Text style={styles.actionSubtitle}>Trigger instant local alert via expo-notifications</Text>
+              <Text style={styles.actionTitle}>Test Local Notification</Text>
+              <Text style={styles.actionSubtitle}>Send an immediate local notification preview</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </Pressable>
 
-          {/* Reset Demo Data */}
-          <Pressable
-            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
-            onPress={handleResetData}
-          >
-            <View style={[styles.actionIconWrap, { backgroundColor: '#FEF2F2' }]}>
-              <Ionicons name="refresh-outline" size={20} color="#EF4444" />
-            </View>
-            <View style={styles.actionTextWrap}>
-              <Text style={styles.actionTitle}>Reset & Seed Demo Reservations</Text>
-              <Text style={styles.actionSubtitle}>Re-populate sample conflict slots for presentation</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-          </Pressable>
+          {session && (
+            <Pressable
+              style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
+              onPress={handleSignOut}
+            >
+              <View style={[styles.actionIconWrap, { backgroundColor: '#FEF2F2' }]}>
+                <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Sign out</Text>
+                <Text style={styles.actionSubtitle}>Remove this account from the current device</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+            </Pressable>
+          )}
         </View>
 
         {/* Architecture Specs Card (From Slide 6, 7, 30) */}
@@ -156,12 +186,12 @@ export const ProfileScreen: React.FC = () => {
           <View style={styles.archRow}>
             <Ionicons name="cube-outline" size={16} color="#1E3A5F" />
             <Text style={styles.archKey}>State:</Text>
-            <Text style={styles.archVal}>Zustand + AsyncStorage Persistence</Text>
+            <Text style={styles.archVal}>Zustand session state + Supabase booking source</Text>
           </View>
           <View style={styles.archRow}>
             <Ionicons name="speedometer-outline" size={16} color="#1E3A5F" />
             <Text style={styles.archKey}>List Opt:</Text>
-            <Text style={styles.archVal}>FlatList 60fps (windowSize=5, memoized)</Text>
+            <Text style={styles.archVal}>Virtualized FlatList (windowSize=5, memoized)</Text>
           </View>
         </View>
       </ScrollView>
@@ -248,6 +278,11 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
     marginRight: 14,
   },
+  avatarFallback: {
+    backgroundColor: '#294B73',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   studentDetails: {
     flex: 1,
   },
@@ -271,6 +306,42 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94A3B8',
     marginTop: 2,
+  },
+  authPrompt: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  authPromptTitle: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 10,
+  },
+  authPromptText: {
+    color: '#64748B',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  authButton: {
+    minHeight: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    backgroundColor: '#1E3A5F',
+    borderRadius: 10,
+    marginTop: 14,
+  },
+  authButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   cardFooter: {
     flexDirection: 'row',

@@ -29,7 +29,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-notifications"
-    ]
+      "expo-notifications",
+      "expo-sqlite"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "29fa18e0-d76f-4871-9c04-847e8b848364"
+      }
+    },
+    "owner": "duongdat030"
   }
 }

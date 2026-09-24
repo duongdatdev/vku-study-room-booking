@@ -1,35 +1,64 @@
-import React from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Alert } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Booking } from '../types';
 import { useBookingStore } from '../store/useBookingStore';
+import { cancelBooking, checkInBooking } from '../services/bookings';
+import { useBookingSync } from '../providers/BookingSyncProvider';
+import { isSupabaseConfigured } from '../services/supabase';
+import { useNetworkState } from 'expo-network';
+import { cancelBookingReminder } from '../hooks/useNotifications';
 
 interface BookingPassModalProps {
   visible: boolean;
   booking: Booking | null;
   onClose: () => void;
+  onBookingUpdated?: (booking: Booking) => void;
 }
 
 export const BookingPassModal: React.FC<BookingPassModalProps> = ({
   visible,
   booking,
   onClose,
+  onBookingUpdated,
 }) => {
-  const checkInBooking = useBookingStore((s) => s.checkInBooking);
-  const cancelBooking = useBookingStore((s) => s.cancelBooking);
+  const updateBookingStatusInState = useBookingStore((s) => s.updateBookingStatus);
+  const { refreshAvailability, refreshMyBookings } = useBookingSync();
+  const networkState = useNetworkState();
+  const canManageBooking = isSupabaseConfigured && networkState.isConnected !== false && networkState.isInternetReachable !== false;
+  const [updatedStatus, setUpdatedStatus] = useState<Booking['status'] | null>(null);
+  const [working, setWorking] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUpdatedStatus(booking?.status ?? null);
+    setActionError(null);
+  }, [booking?.id, booking?.status]);
 
   if (!booking) return null;
 
-  const isCheckedIn = booking.status === 'checked-in';
-  const isCancelled = booking.status === 'cancelled';
+  const currentBooking = updatedStatus ? { ...booking, status: updatedStatus } : booking;
+  const isCheckedIn = currentBooking.status === 'checked-in';
+  const isCancelled = currentBooking.status === 'cancelled';
 
-  const handleCheckIn = () => {
-    checkInBooking(booking.id);
-    Alert.alert(
-      '🎉 Check-In Successful',
-      `Welcome to ${booking.roomName}! The electronic door lock has been unlocked for your slot.`
-    );
+  const handleCheckIn = async () => {
+    setWorking(true);
+    setActionError(null);
+    try {
+      await checkInBooking(booking.id);
+      const updated = { ...booking, status: 'checked-in' as const };
+      setUpdatedStatus(updated.status);
+      updateBookingStatusInState(updated.id, updated.status);
+      onBookingUpdated?.(updated);
+      void refreshMyBookings();
+      void refreshAvailability();
+      Alert.alert('Check-in recorded', `Your reservation at ${booking.roomName} is marked checked in.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not check in this reservation.');
+    } finally {
+      setWorking(false);
+    }
   };
 
   const handleCancel = () => {
@@ -41,13 +70,30 @@ export const BookingPassModal: React.FC<BookingPassModalProps> = ({
         {
           text: 'Yes, Release Slot',
           style: 'destructive',
-          onPress: () => {
-            cancelBooking(booking.id);
-            onClose();
-          },
+          onPress: () => { void handleCancelConfirmed(); },
         },
       ]
     );
+  };
+
+  const handleCancelConfirmed = async () => {
+    setWorking(true);
+    setActionError(null);
+    try {
+      await cancelBooking(booking.id);
+      await cancelBookingReminder(booking.id);
+      const updated = { ...booking, status: 'cancelled' as const };
+      setUpdatedStatus(updated.status);
+      updateBookingStatusInState(updated.id, updated.status);
+      onBookingUpdated?.(updated);
+      void refreshMyBookings();
+      void refreshAvailability();
+      onClose();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not cancel this reservation.');
+    } finally {
+      setWorking(false);
+    }
   };
 
   return (
@@ -118,9 +164,9 @@ export const BookingPassModal: React.FC<BookingPassModalProps> = ({
 
             {/* Room Details Banner */}
             <View style={styles.roomSection}>
-              <Text style={styles.roomName}>{booking.roomName}</Text>
+              <Text style={styles.roomName}>{currentBooking.roomName}</Text>
               <Text style={styles.buildingSubtext}>
-                Khu {booking.building} • Tầng {booking.floor} • Sức chứa: {booking.capacity} chỗ
+                Khu {currentBooking.building} • Tầng {currentBooking.floor} • Sức chứa: {currentBooking.capacity} chỗ
               </Text>
             </View>
 
@@ -128,24 +174,24 @@ export const BookingPassModal: React.FC<BookingPassModalProps> = ({
             <View style={styles.infoGrid}>
               <View style={styles.infoCol}>
                 <Text style={styles.infoLabel}>DATE</Text>
-                <Text style={styles.infoValue}>{booking.date}</Text>
+                <Text style={styles.infoValue}>{currentBooking.date}</Text>
               </View>
               <View style={styles.infoCol}>
                 <Text style={styles.infoLabel}>TIME SLOT</Text>
-                <Text style={styles.infoValue}>{booking.timeRange}</Text>
+                <Text style={styles.infoValue}>{currentBooking.timeRange}</Text>
               </View>
             </View>
 
             <View style={[styles.infoGrid, { marginTop: 12 }]}>
               <View style={styles.infoCol}>
                 <Text style={styles.infoLabel}>RESERVED FOR</Text>
-                <Text style={styles.infoValue}>{booking.userName}</Text>
-                <Text style={styles.studentIdLabel}>ID: {booking.userStudentId}</Text>
+                <Text style={styles.infoValue}>{currentBooking.userName}</Text>
+                <Text style={styles.studentIdLabel}>Student ID: {currentBooking.userStudentId}</Text>
               </View>
               <View style={styles.infoCol}>
                 <Text style={styles.infoLabel}>PURPOSE</Text>
                 <Text style={styles.infoValue} numberOfLines={2}>
-                  {booking.purpose || 'Academic Study'}
+                  {currentBooking.purpose || 'Academic Study'}
                 </Text>
               </View>
             </View>
@@ -157,43 +203,47 @@ export const BookingPassModal: React.FC<BookingPassModalProps> = ({
               <View style={styles.dividerCircleRight} />
             </View>
 
-            {/* QR Code Section */}
-            <View style={styles.qrSection}>
-              <View style={styles.qrWrapper}>
-                <QRCode
-                  value={booking.qrCodeString || booking.id}
-                  size={160}
-                  color="#0F172A"
-                  backgroundColor="#FFFFFF"
-                />
+            {/* A QR pass exists only for a server-confirmed active reservation. */}
+            {!isCancelled ? (
+              <View style={styles.qrSection}>
+                <View style={styles.qrWrapper}>
+                  <QRCode
+                    value={currentBooking.qrCodeString || currentBooking.id}
+                    size={160}
+                    color="#0F172A"
+                    backgroundColor="#FFFFFF"
+                  />
+                </View>
+                <Text style={styles.qrHint}>
+                  Show this reservation reference to campus staff for check-in.
+                </Text>
+                <Text style={styles.bookingRef}>Ref: {currentBooking.id}</Text>
               </View>
-              <Text style={styles.qrHint}>
-                Scan at the room door tablet or security desk for access
-              </Text>
-              <Text style={styles.bookingRef}>Ref: {booking.id}</Text>
-            </View>
+            ) : (
+              <Text style={styles.cancelledQrNotice}>This reservation was cancelled. Its QR pass is no longer valid.</Text>
+            )}
 
-            {/* Actions */}
+            {!!actionError && <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text>}
+
+            {/* These actions are committed by Supabase before the UI changes state. */}
             <View style={styles.actionsRow}>
               {!isCheckedIn && !isCancelled && (
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.checkInBtn,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={handleCheckIn}
+                  disabled={working || !canManageBooking}
+                  style={({ pressed }) => [styles.checkInBtn, (working || !canManageBooking) && styles.actionDisabled, pressed && !working && canManageBooking && { opacity: 0.85 }]}
+                  onPress={() => void handleCheckIn()}
                 >
-                  <Ionicons name="scan" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  <Text style={styles.checkInBtnText}>Check In at Door</Text>
+                  {working ? <ActivityIndicator color="#FFFFFF" /> : <>
+                    <Ionicons name="scan" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.checkInBtnText}>Record Check-in</Text>
+                  </>}
                 </Pressable>
               )}
 
               {!isCancelled && !isCheckedIn && (
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.cancelBtn,
-                    pressed && { opacity: 0.7 },
-                  ]}
+                  disabled={working || !canManageBooking}
+                  style={({ pressed }) => [styles.cancelBtn, (working || !canManageBooking) && styles.actionDisabled, pressed && !working && canManageBooking && { opacity: 0.7 }]}
                   onPress={handleCancel}
                 >
                   <Text style={styles.cancelBtnText}>Release / Cancel Booking</Text>
@@ -353,6 +403,26 @@ const styles = StyleSheet.create({
   qrSection: {
     alignItems: 'center',
     marginVertical: 4,
+  },
+  cancelledQrNotice: {
+    color: '#B91C1C',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    padding: 12,
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 18,
+    marginVertical: 12,
+  },
+  actionError: {
+    color: '#B91C1C',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  actionDisabled: {
+    opacity: 0.5,
   },
   qrWrapper: {
     padding: 12,

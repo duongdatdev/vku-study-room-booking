@@ -2,11 +2,14 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { RootStackParamList, TabParamList } from '../types';
 import { BrowseRoomsScreen } from '../screens/BrowseRoomsScreen';
 import { MyBookingsScreen } from '../screens/MyBookingsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { RoomDetailScreen } from '../screens/RoomDetailScreen';
+import { SignInScreen } from '../screens/SignInScreen';
+import { useAuth } from '../providers/AuthProvider';
 
 const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -65,6 +68,15 @@ function BottomTabs() {
 }
 
 export function RootNavigator() {
+  const { loading } = useAuth();
+  if (loading) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color="#1E3A5F" />
+      </View>
+    );
+  }
+
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs" component={BottomTabs} />
@@ -75,6 +87,20 @@ export function RootNavigator() {
           animation: 'slide_from_right',
         }}
       />
+      <Stack.Screen
+        name="SignIn"
+        component={SignInScreen}
+        options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+      />
     </Stack.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+});

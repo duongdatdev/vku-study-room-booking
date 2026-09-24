@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TextInput,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,18 +19,29 @@ import { BookingPassModal } from '../components/BookingPassModal';
 import { StatusBadge } from '../components/StatusBadge';
 import { useNotifications } from '../hooks/useNotifications';
 import { getNext7Days } from '../data/timeSlots';
+import { useRooms } from '../hooks/useRooms';
+import { useCurrentCampusSlot } from '../hooks/useCurrentCampusSlot';
+import { useAuth } from '../providers/AuthProvider';
+import { useBookingSync } from '../providers/BookingSyncProvider';
+import { createBooking } from '../services/bookings';
+import { isSupabaseConfigured } from '../services/supabase';
+import { useNetworkState } from 'expo-network';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RoomDetail'>;
 
 export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { roomId } = route.params;
-  const rooms = useBookingStore((s) => s.rooms);
+  const { data: rooms = [], isLoading, isError, refetch } = useRooms();
   const room = rooms.find((r) => r.id === roomId);
-
   const isSlotBooked = useBookingStore((s) => s.isSlotBooked);
-  const bookRoom = useBookingStore((s) => s.bookRoom);
   const user = useBookingStore((s) => s.user);
-
+  const availabilityState = useBookingStore((s) => s.availabilityState);
+  const availabilityMessage = useBookingStore((s) => s.availabilityMessage);
+  const { session } = useAuth();
+  const { refreshAvailability, refreshMyBookings } = useBookingSync();
+  const networkState = useNetworkState();
+  const networkAvailable = networkState.isConnected !== false && networkState.isInternetReachable !== false;
+  const currentCampusSlot = useCurrentCampusSlot();
   const { scheduleBookingReminder } = useNotifications();
 
   // Booking form state
@@ -41,6 +53,33 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   // Post-booking QR modal pass state
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
   const [passModalVisible, setPassModalVisible] = useState<boolean>(false);
+  const [bookingBusy, setBookingBusy] = useState(false);
+
+  const canReachBookingServer = isSupabaseConfigured && networkAvailable && availabilityState === 'ready';
+  const currentAvailability = !canReachBookingServer
+    ? null
+    : currentCampusSlot.slotId
+    ? !isSlotBooked(roomId, currentCampusSlot.date, currentCampusSlot.slotId)
+    : null;
+
+  useEffect(() => {
+    if (selectedSlot && isSlotBooked(roomId, selectedDate, selectedSlot.id)) {
+      setSelectedSlot(null);
+    }
+  }, [isSlotBooked, roomId, selectedDate, selectedSlot]);
+
+  if (isLoading) {
+    return <View style={styles.notFound}><ActivityIndicator size="large" color="#1E3A5F" /></View>;
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.notFound}>
+        <Text style={styles.notFoundText}>Couldn’t load this room.</Text>
+        <Pressable onPress={() => void refetch()}><Text style={styles.retryText}>Try again</Text></Pressable>
+      </View>
+    );
+  }
 
   if (!room) {
     return (
@@ -59,39 +98,40 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const handleConfirmReservation = async () => {
+    if (!session) {
+      navigation.navigate('SignIn');
+      return;
+    }
+    if (!canReachBookingServer) {
+      Alert.alert('Booking unavailable', availabilityMessage ?? 'Reconnect to the internet to check the shared schedule.');
+      return;
+    }
     if (!selectedSlot) {
       Alert.alert('Selection Required', 'Please select an available 2-hour time slot.');
       return;
     }
 
-    const result = bookRoom({
-      roomId: room.id,
-      roomName: room.name,
-      building: room.building,
-      floor: room.floor,
-      capacity: room.capacity,
-      date: selectedDate,
-      slotId: selectedSlot.id,
-      timeRange: selectedSlot.label,
-      purpose: purpose || 'Academic Group Work',
-    });
+    setBookingBusy(true);
+    try {
+      const booking = await createBooking({
+        roomId: room.id,
+        date: selectedDate,
+        slotId: selectedSlot.id,
+        purpose,
+      });
 
-    if (!result.success || !result.booking) {
-      Alert.alert('Reservation Failed', result.error || 'Conflict detected.');
-      return;
+      // Only show a pass after the insert and the RLS-protected server read both succeed.
+      setConfirmedBooking(booking);
+      setPassModalVisible(true);
+      void scheduleBookingReminder(room.name, selectedDate, selectedSlot.label, booking.id);
+      void refreshAvailability();
+      void refreshMyBookings();
+    } catch (error) {
+      Alert.alert('Reservation failed', error instanceof Error ? error.message : 'Could not save this booking.');
+      void refreshAvailability();
+    } finally {
+      setBookingBusy(false);
     }
-
-    // Schedule 15-minute advance notification reminder
-    await scheduleBookingReminder(
-      room.name,
-      selectedDate,
-      selectedSlot.label,
-      result.booking.id
-    );
-
-    // Show QR Booking Pass Modal immediately
-    setConfirmedBooking(result.booking);
-    setPassModalVisible(true);
   };
 
   return (
@@ -117,7 +157,7 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
                 Khu {room.building} • Tầng {room.floor}
               </Text>
             </View>
-            <StatusBadge isAvailable={room.isAvailableNow} />
+            <StatusBadge isAvailable={currentAvailability} />
           </View>
 
           <Text style={styles.roomName}>{room.name}</Text>
@@ -128,6 +168,24 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
 
           <Text style={styles.description}>{room.description}</Text>
+
+          {availabilityState !== 'ready' || !networkAvailable ? (
+            <View style={styles.scheduleNotice}>
+              <Ionicons name="cloud-offline-outline" size={18} color="#92400E" />
+              <Text style={styles.scheduleNoticeText}>
+                {!isSupabaseConfigured
+                  ? 'Connect Supabase to view the shared schedule and book online.'
+                  : !networkAvailable
+                  ? 'You are offline. Reconnect to check availability before booking.'
+                  : availabilityMessage ?? 'Checking the shared room schedule…'}
+              </Text>
+              {isSupabaseConfigured && networkAvailable && (
+                <Pressable onPress={() => void refreshAvailability()} accessibilityRole="button">
+                  <Text style={styles.retryText}>Refresh</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
 
           {/* Amenities & Equipment */}
           <Text style={styles.sectionHeader}>Included Equipment & Amenities</Text>
@@ -140,7 +198,7 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             ))}
           </View>
 
-          {/* Time Slot Picker & Conflict Engine */}
+          {/* Time Slot Picker & Shared Schedule */}
           <View style={styles.pickerSection}>
             <TimeSlotPicker
               selectedDate={selectedDate}
@@ -157,9 +215,10 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             <TextInput
               style={styles.purposeInput}
               value={purpose}
-              onChangeText={setPurpose}
+              onChangeText={(value) => setPurpose(value.slice(0, 300))}
               placeholder="e.g. Capstone Project meeting, Midterm review..."
               placeholderTextColor="#94A3B8"
+              maxLength={300}
             />
           </View>
 
@@ -167,7 +226,9 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           <View style={styles.studentCardHint}>
             <Ionicons name="school-outline" size={18} color="#2563EB" style={{ marginRight: 8 }} />
             <Text style={styles.studentCardHintText}>
-              Booking under: <Text style={{ fontWeight: '700' }}>{user.name}</Text> (ID: {user.studentId})
+              {session && user
+                ? <>Booking under: <Text style={{ fontWeight: '700' }}>{user.email}</Text></>
+                : 'Sign in with a VKU email address before booking.'}
             </Text>
           </View>
         </View>
@@ -187,14 +248,18 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <Pressable
           style={({ pressed }) => [
             styles.bookButton,
-            !selectedSlot && styles.bookButtonDisabled,
-            pressed && selectedSlot && { opacity: 0.85 },
+            (!selectedSlot || bookingBusy || !canReachBookingServer) && styles.bookButtonDisabled,
+            pressed && selectedSlot && canReachBookingServer && { opacity: 0.85 },
           ]}
-          disabled={!selectedSlot}
+          disabled={bookingBusy || !canReachBookingServer || (Boolean(session) && !selectedSlot)}
           onPress={handleConfirmReservation}
         >
-          <Text style={styles.bookButtonText}>Confirm Booking</Text>
-          <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+          {bookingBusy ? <ActivityIndicator color="#FFFFFF" /> : (
+            <>
+              <Text style={styles.bookButtonText}>{session ? 'Confirm Booking' : 'Sign in to book'}</Text>
+              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+            </>
+          )}
         </Pressable>
       </View>
 
@@ -202,6 +267,7 @@ export const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       <BookingPassModal
         visible={passModalVisible}
         booking={confirmedBooking}
+        onBookingUpdated={(updated) => setConfirmedBooking(updated)}
         onClose={() => {
           setPassModalVisible(false);
           navigation.navigate('MainTabs');
@@ -327,6 +393,27 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 13,
     color: '#0F172A',
+  },
+  scheduleNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  scheduleNoticeText: {
+    flex: 1,
+    color: '#78350F',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  retryText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+    fontSize: 12,
+    padding: 6,
   },
   studentCardHint: {
     flexDirection: 'row',

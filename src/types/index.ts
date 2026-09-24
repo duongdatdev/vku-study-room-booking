@@ -23,6 +23,13 @@ export interface TimeSlot {
 
 export type BookingStatus = 'confirmed' | 'checked-in' | 'cancelled';
 
+/** Deliberately contains no user or purpose data; exposed by the public occupancy feed. */
+export interface PublicOccupancy {
+  roomId: string;
+  date: string;
+  slotId: string;
+}
+
 export interface Booking {
   id: string;
   roomId: string;
@@ -61,6 +68,7 @@ export interface StudentProfile {
 export type RootStackParamList = {
   MainTabs: NavigatorScreenParams<TabParamList> | undefined;
   RoomDetail: { roomId: string };
+  SignIn: undefined;
 };
 
 export type TabParamList = {

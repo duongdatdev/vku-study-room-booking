@@ -11,6 +11,8 @@ import { RoomCard } from '../components/RoomCard';
 import { SearchBar } from '../components/SearchBar';
 import { FilterChips } from '../components/FilterChips';
 import { useRooms } from '../hooks/useRooms';
+import { useCurrentCampusSlot } from '../hooks/useCurrentCampusSlot';
+import { useNetworkState } from 'expo-network';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<TabParamList, 'BrowseRooms'>,
@@ -26,6 +28,8 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
     refetch,
   } = useRooms();
   const filters = useBookingStore((s) => s.filters);
+  const isSlotBooked = useBookingStore((s) => s.isSlotBooked);
+  const availabilityState = useBookingStore((s) => s.availabilityState);
   const setSearchQuery = useBookingStore((s) => s.setSearchQuery);
   const setSelectedBuilding = useBookingStore((s) => s.setSelectedBuilding);
   const setMinCapacity = useBookingStore((s) => s.setMinCapacity);
@@ -33,6 +37,11 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
   const resetFilters = useBookingStore((s) => s.resetFilters);
 
   const { columns, cardWidth } = useResponsiveLayout();
+  const currentCampusSlot = useCurrentCampusSlot();
+  const networkState = useNetworkState();
+  const liveScheduleAvailable = availabilityState === 'ready'
+    && networkState.isConnected !== false
+    && networkState.isInternetReachable !== false;
 
   // Multi-parameter filtering engine
   const filteredRooms = useMemo(() => {
@@ -140,7 +149,7 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
         hasActiveFilters={hasActiveFilters}
       />
 
-      {/* 60fps Optimized FlatList (Slide 17 & 27) */}
+      {/* Virtualized room list */}
       <FlatList
         key={columns} // Force remount when layout/orientation changes columns
         data={filteredRooms}
@@ -148,7 +157,16 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
           <View style={[styles.cardWrapper, { width: cardWidth }]}>
-            <RoomCard room={item} index={index} onPress={handleRoomPress} />
+          <RoomCard
+            room={item}
+            currentAvailability={liveScheduleAvailable
+              ? currentCampusSlot.slotId
+                ? !isSlotBooked(item.id, currentCampusSlot.date, currentCampusSlot.slotId)
+                : null
+              : null}
+            index={index}
+            onPress={handleRoomPress}
+          />
           </View>
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
