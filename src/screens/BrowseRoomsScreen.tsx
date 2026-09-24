@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList, Room } from '../types';
@@ -8,11 +8,18 @@ import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import { RoomCard } from '../components/RoomCard';
 import { SearchBar } from '../components/SearchBar';
 import { FilterChips } from '../components/FilterChips';
+import { useRooms } from '../hooks/useRooms';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MainTabs'>;
 
 export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
-  const rooms = useBookingStore((s) => s.rooms);
+  const {
+    data: rooms = [],
+    isLoading,
+    isError,
+    isRefetching,
+    refetch,
+  } = useRooms();
   const filters = useBookingStore((s) => s.filters);
   const setSearchQuery = useBookingStore((s) => s.setSearchQuery);
   const setSelectedBuilding = useBookingStore((s) => s.setSelectedBuilding);
@@ -64,6 +71,33 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
   const handleRoomPress = (room: Room) => {
     navigation.navigate('RoomDetail', { roomId: room.id });
   };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.feedbackScreen} edges={['top', 'left', 'right']}>
+        <ActivityIndicator size="large" color="#1E3A5F" />
+        <Text style={styles.feedbackTitle}>Loading rooms…</Text>
+        <Text style={styles.feedbackText}>Checking the latest study-room availability.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (isError) {
+    return (
+      <SafeAreaView style={styles.feedbackScreen} edges={['top', 'left', 'right']}>
+        <Text style={styles.feedbackTitle}>Couldn’t load rooms</Text>
+        <Text style={styles.feedbackText}>Please check your connection and try again.</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading rooms"
+          style={({ pressed }) => [styles.retryButton, pressed && styles.buttonPressed]}
+          onPress={() => void refetch()}
+        >
+          <Text style={styles.retryButtonText}>Try again</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -118,6 +152,8 @@ export const BrowseRoomsScreen: React.FC<Props> = ({ navigation }) => {
         maxToRenderPerBatch={5}
         windowSize={5}
         removeClippedSubviews={true}
+        refreshing={isRefetching}
+        onRefresh={() => void refetch()}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyEmoji}>🔍</Text>
@@ -206,5 +242,42 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  feedbackScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 32,
+  },
+  feedbackTitle: {
+    marginTop: 16,
+    color: '#0F172A',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  feedbackText: {
+    marginTop: 6,
+    color: '#64748B',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  retryButton: {
+    minHeight: 48,
+    marginTop: 20,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#1E3A5F',
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  buttonPressed: {
+    opacity: 0.82,
   },
 });
