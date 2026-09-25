@@ -11,7 +11,8 @@
 * **Student Information (Individual Project):**
   * **Full Name:** **Dương Bảo Đạt**
   * **Student ID:** **23IT046**
-  * **Class / Cohort:** **23SE1** — Faculty of Computer Science
+  * **Class / Cohort:** **23SE1**
+  * **Major:** **Information Technology (Công nghệ thông tin)**
   * **Role:** **Full-Stack Mobile Developer (Architecture, UI/UX Design, Realtime Booking & Notifications)**
   * **Contribution:** **100%**
 * **🔗 Live Demo URL:** [https://vku-study-room-booking.pages.dev](https://vku-study-room-booking.pages.dev) *(Hosted on Cloudflare Pages)*
